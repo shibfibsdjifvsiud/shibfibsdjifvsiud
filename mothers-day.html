@@ -5,15 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>母亲节快乐 - 感恩妈妈</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=ZCOOL+XiaoWei&display=swap');
-
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  font-family: 'Noto Serif SC', 'ZCOOL XiaoWei', 'STSong', serif;
+  font-family: 'STSong', 'SimSun', 'Noto Serif SC', 'PingFang SC', 'Microsoft YaHei', serif;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   -webkit-user-select: none;
@@ -465,18 +463,12 @@ body {
   <div class="footer-msg" id="footerMsg">💖 妈妈，我永远爱你 💖</div>
 </div>
 
-<!-- Music -->
-<audio id="bgm" preload="auto" loop>
-  <source src="https://cdn.pixabay.com/audio/2022/10/25/audio_946f4a0eff.mp3" type="audio/mpeg">
-</audio>
-
 <!-- Music Button -->
 <button class="music-btn" id="musicBtn" onclick="toggleMusic()" title="音乐">🎵</button>
 <div class="music-tip" id="musicTip">点击播放音乐</div>
 
 <script>
 const overlay = document.getElementById('overlay');
-const bgm = document.getElementById('musicBtn');
 
 const message = `To 我最最亲爱的妈妈 💗
 
@@ -497,19 +489,117 @@ const message = `To 我最最亲爱的妈妈 💗
 祝妈妈母亲节快乐
 愿您岁岁平安 万事顺遂 🌹`;
 
+// ===== Web Audio API Music Generator =====
+const BGM = {
+  ctx: null,
+  masterGain: null,
+  padNodes: [],
+  melodyTimer: null,
+  playing: false,
+
+  async start() {
+    if (this.playing) return;
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (this.ctx.state === 'suspended') {
+      await this.ctx.resume();
+    }
+
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.gain.value = 0.1;
+    this.masterGain.connect(this.ctx.destination);
+
+    // Warm pad: two detuned triangle oscillators (fifth apart)
+    const padGain = this.ctx.createGain();
+    padGain.gain.value = 0.25;
+    padGain.connect(this.masterGain);
+
+    [261.63, 392.00].forEach(freq => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      osc.connect(padGain);
+      osc.start();
+      this.padNodes.push(osc);
+    });
+
+    // Gentle sub-bass
+    const subOsc = this.ctx.createOscillator();
+    subOsc.type = 'sine';
+    subOsc.frequency.value = 130.81;
+    const subGain = this.ctx.createGain();
+    subGain.gain.value = 0.15;
+    subOsc.connect(subGain);
+    subGain.connect(this.masterGain);
+    subOsc.start();
+    this.padNodes.push(subOsc);
+
+    this.playing = true;
+    this.playMelody();
+  },
+
+  stop() {
+    this.playing = false;
+    if (this.melodyTimer) clearTimeout(this.melodyTimer);
+    this.padNodes.forEach(n => { try { n.stop(); } catch(e){} });
+    this.padNodes = [];
+    if (this.ctx) {
+      this.ctx.close();
+      this.ctx = null;
+    }
+  },
+
+  playNote(freq, startTime, duration, vol = 0.08) {
+    if (!this.ctx || !this.playing) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(vol, startTime + 0.04);
+    gain.gain.setValueAtTime(vol, startTime + duration * 0.7);
+    gain.gain.linearRampToValueAtTime(0, startTime + duration);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(startTime);
+    osc.stop(startTime + duration + 0.05);
+  },
+
+  playMelody() {
+    if (!this.playing) return;
+    // Pentatonic melody: C D E G A C5
+    const scale = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25];
+    // Gentle heartwarming melody pattern (12-note sequence)
+    const pattern = [0, 2, 4, 2, 3, 1, 0, 3, 4, 5, 3, 2];
+    const baseDuration = 0.55;
+    const now = this.ctx.currentTime;
+
+    pattern.forEach((step, i) => {
+      const freq = scale[step];
+      const start = now + i * baseDuration;
+      const dur = baseDuration * 0.85;
+      this.playNote(freq, start, dur, 0.07);
+    });
+
+    const totalDuration = pattern.length * baseDuration * 1000;
+    this.melodyTimer = setTimeout(() => this.playMelody(), totalDuration - 50);
+  }
+};
+
 let musicPlaying = false;
 
 function toggleMusic() {
-  const audio = document.getElementById('bgm');
   const btn = document.getElementById('musicBtn');
   const tip = document.getElementById('musicTip');
   if (musicPlaying) {
-    audio.pause();
+    BGM.stop();
     btn.classList.remove('playing');
     btn.textContent = '🎵';
     tip.textContent = '音乐已暂停';
+    musicPlaying = false;
   } else {
-    audio.play().then(() => {
+    BGM.start().then(() => {
       btn.classList.add('playing');
       btn.textContent = '🎶';
       tip.textContent = '音乐播放中';
@@ -517,24 +607,19 @@ function toggleMusic() {
     }).catch(() => {
       tip.textContent = '点击播放音乐';
     });
-    musicPlaying = true;
   }
 }
 
 function openCard() {
-  // Start music
-  const audio = document.getElementById('bgm');
-  audio.play().then(() => {
+  BGM.start().then(() => {
     document.getElementById('musicBtn').classList.add('playing');
     document.getElementById('musicBtn').textContent = '🎶';
     document.getElementById('musicTip').textContent = '音乐播放中';
     musicPlaying = true;
   }).catch(() => {});
 
-  // Hide overlay
   overlay.classList.add('hidden');
 
-  // Sequential animations
   setTimeout(() => document.getElementById('l1').classList.add('in'), 300);
   setTimeout(() => document.getElementById('l2').classList.add('in'), 800);
   setTimeout(() => document.getElementById('l3').classList.add('in'), 1500);
@@ -542,23 +627,15 @@ function openCard() {
   setTimeout(() => document.getElementById('l5').classList.add('in'), 2000);
   setTimeout(() => document.getElementById('l6').classList.add('in'), 2800);
 
-  // Shift layers up
   setTimeout(() => {
     ['l1','l2','l3','l4','l5','l6'].forEach(id => {
       document.getElementById(id).classList.add('up');
     });
   }, 4500);
 
-  // Show message card
   setTimeout(() => document.getElementById('l7').classList.add('show'), 4800);
-
-  // Typewriter
-  setTimeout(() => typeWriter(message, 'typedText', 100), 6300);
-
-  // Start petals
+  setTimeout(() => typeWriter(message, 'typedText', 95), 6300);
   setTimeout(startPetals, 3500);
-
-  // Show footer
   setTimeout(() => document.getElementById('footerMsg').classList.add('visible'), 10000);
 }
 
@@ -566,12 +643,8 @@ function typeWriter(text, elementId, delay) {
   const el = document.getElementById(elementId);
   el.innerHTML = '<span class="cursor"></span>';
   let i = 0;
-
   function type() {
-    if (i >= text.length) {
-      // Keep cursor
-      return;
-    }
+    if (i >= text.length) return;
     if (text.slice(i, i + 5) === '<br/>') {
       el.innerHTML = el.innerHTML.replace('<span class="cursor"></span>', '') + '<br/><span class="cursor"></span>';
       i += 5;
@@ -586,7 +659,7 @@ function typeWriter(text, elementId, delay) {
 
 function startPetals() {
   const container = document.getElementById('petals');
-  const petalEmojis = ['🌸', '💮', '🌷', '🌺', '💐', '🌼', '🏵️', '✿'];
+  const petalEmojis = ['🌸', '💮', '🌷', '🌺', '💐', '🌼', '🏵️'];
 
   function createPetal() {
     const petal = document.createElement('span');
@@ -595,29 +668,16 @@ function startPetals() {
     petal.style.left = Math.random() * 100 + '%';
     petal.style.fontSize = (14 + Math.random() * 22) + 'px';
     petal.style.animationDuration = (8 + Math.random() * 14) + 's';
-    petal.style.animationDelay = '0s';
     container.appendChild(petal);
-
     const duration = parseFloat(petal.style.animationDuration) * 1000;
     setTimeout(() => petal.remove(), duration + 200);
   }
 
-  // Initial burst
   for (let i = 0; i < 8; i++) {
     setTimeout(() => createPetal(), i * 300);
   }
-  // Continuous
   setInterval(createPetal, 800 + Math.random() * 400);
 }
-
-// Also trigger music on first user interaction anywhere
-document.addEventListener('click', function initAudio() {
-  const audio = document.getElementById('bgm');
-  if (audio.paused && !musicPlaying) {
-    // Don't force play, just ensure it's loaded
-    audio.load();
-  }
-}, { once: true });
 </script>
 </body>
 </html>
